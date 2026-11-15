@@ -42,6 +42,25 @@ Two or three review rounds is normal.
 5. Run check_model before telling the user it is finished, and fix its warnings.
 6. Export with export_model only when the user asks, into the folder they name.
 
+Getting it right without piecemeal fixes
+- Measure before building. From each reference, read the proportions as fractions of the \
+overall length and height: where the highest point is, where each wheel, leg or handle sits, \
+how tall and wide each main volume is. Write them as one table of named numbers at the top of \
+the script; every part takes its position and size from that table.
+- One script builds the whole model. It starts by removing what it created before and rebuilds \
+everything. To correct the model, change numbers in the table and run the script again; do not \
+move or rescale objects one by one. Parts that touch each other must be derived from the same \
+numbers, so they move together and never end up buried or floating.
+- Silhouette before details. Name the three to five features that make the subject \
+recognisable (a roofline, a stance, the shape of a handle) and get those right in the main \
+volumes. Add no details until the side and front outlines match the references.
+- Compare like with like. Render the view closest to each reference, list the differences in \
+order of their effect on the outline, and fix the largest first.
+- Before you finish: no part hidden inside another, none floating; round parts that stand on \
+the ground use a segment count divisible by 4 so the lowest point is exactly Z=0; left and \
+right parts come from the same numbers, mirrored.
+- Tell the user which sides you had no reference for and therefore inferred.
+
 Conventions inside Blender
 - Z is up, units are metres. The model's front faces -Y (the "front" render looks from -Y \
 towards +Y). Rest it on Z=0, centred on the origin.

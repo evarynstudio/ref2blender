@@ -103,6 +103,10 @@ def main():
     blender = sys.argv[1]
     with tempfile.TemporaryDirectory() as tmp:
         stop = os.path.join(tmp, "stop")
+        if os.path.exists(INFO) and "--force" not in sys.argv:
+            sys.exit("A Ref2Blender bridge looks active (" + INFO + " exists). This test replaces "
+                     "that file and would cut the connection: press Disconnect in Blender first, "
+                     "or pass --force.")
         if os.path.exists(INFO):
             sys.exit("A Blender bridge is already running; close it before running this test.")
         asyncio.run(run_disconnected())
