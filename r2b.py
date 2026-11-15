@@ -6,6 +6,10 @@
     python r2b.py render --camera 35,8,50,1.5   free camera: azimuth,elevation[,lens[,aspect]]
                          (azimuth 0 = front, 90 = right side; lens 0 = orthographic;
                           aspect = width/height; repeat --camera for more; saved as camera_N.png)
+    python r2b.py compare photo.jpg --camera 35,8,50   outline of the model over a reference,
+                         with a score when its background is plain (or --view right for a
+                         drawing; --box L,T,R,B = the subject, as fractions of the image)
+    python r2b.py script                print the model script stored in the .blend file
     python r2b.py summary
     python r2b.py clear                 empty the Ref2Blender collection
     python r2b.py check [--budget 2000] game-readiness report (triangles, materials, UVs)
@@ -65,6 +69,14 @@ def main():
     p_render.add_argument("views", nargs="*")
     p_render.add_argument("--camera", action="append", default=[], metavar="AZ,EL[,LENS[,ASPECT]]")
     p_render.add_argument("--size", type=int, default=768)
+    p_compare = sub.add_parser("compare")
+    p_compare.add_argument("image")
+    p_compare.add_argument("--view")
+    p_compare.add_argument("--camera", metavar="AZ,EL[,LENS]")
+    p_compare.add_argument("--box", metavar="LEFT,TOP,RIGHT,BOTTOM")
+    p_compare.add_argument("--size", type=int, default=768)
+    p_compare.add_argument("--asset")
+    sub.add_parser("script")
     sub.add_parser("summary")
     sub.add_parser("clear")
     p_render.add_argument("--asset", help="render only this asset sub-collection")
@@ -119,6 +131,42 @@ def main():
         print()
         print(reply["summary"])
         sys.exit(0 if reply["ok"] else 1)
+
+    if args.cmd == "compare":
+        payload = {"cmd": "compare", "image": os.path.abspath(args.image), "view": args.view,
+                   "size": args.size, "asset": args.asset}
+        try:
+            if args.camera:
+                values = [float(v) for v in args.camera.split(",")]
+                if not 2 <= len(values) <= 3:
+                    raise ValueError
+                payload["camera"] = dict(zip(("azimuth", "elevation", "lens"), values))
+            if args.box:
+                payload["box"] = [float(v) for v in args.box.split(",")]
+        except ValueError:
+            sys.exit("--camera expects azimuth,elevation[,lens] and --box left,top,right,bottom")
+        reply = call(payload)
+        if not reply["ok"]:
+            sys.exit(reply["error"])
+        print(reply["text"])
+        os.makedirs(RENDER_DIR, exist_ok=True)
+        for item in reply["renders"]:
+            path = os.path.join(RENDER_DIR, f"compare_{item['view']}.png")
+            with open(path, "wb") as f:
+                f.write(base64.standard_b64decode(item["png"]))
+            print(path)
+        return
+
+    if args.cmd == "script":
+        reply = call({"cmd": "script"})
+        if not reply["ok"]:
+            sys.exit(reply["error"])
+        for item in reply["scripts"]:
+            print(f"# ==== {item['name']} ====")
+            print(item["code"])
+        if not reply["scripts"]:
+            print("No model script is stored in this Blender file.")
+        return
 
     if args.cmd == "render":
         cameras = []

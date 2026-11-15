@@ -333,10 +333,11 @@ def _camera_shots(cameras):
     return shots
 
 
-def render_views(views, size=RENDER_SIZE, asset=None, cameras=None):
+def render_views(views, size=RENDER_SIZE, asset=None, cameras=None, transparent=False):
     """Render the generated objects (or one asset). Returns a list of (view_name, png_bytes).
     `cameras` adds free cameras (see check_cameras), named camera_1, camera_2..., to match
-    the angle a reference photo was taken from."""
+    the angle a reference photo was taken from. `transparent` leaves the background out
+    (RGBA), so the alpha channel is the model's outline."""
     shots = [(name, VIEWS[name][0], VIEWS[name][1], 50.0, 1.0) for name in views]
     shots += _camera_shots(cameras)
     scene = bpy.context.scene
@@ -362,11 +363,11 @@ def render_views(views, size=RENDER_SIZE, asset=None, cameras=None):
     keep.set(render, "resolution_x", size)
     keep.set(render, "resolution_y", size)
     keep.set(render, "resolution_percentage", 100)
-    keep.set(render, "film_transparent", False)
+    keep.set(render, "film_transparent", transparent)
     keep.set(render, "use_file_extension", True)
     keep.set(render.image_settings, "media_type", "IMAGE")
     keep.set(render.image_settings, "file_format", "PNG")
-    keep.set(render.image_settings, "color_mode", "RGB")
+    keep.set(render.image_settings, "color_mode", "RGBA" if transparent else "RGB")
     keep.set(shading, "light", "STUDIO")
     keep.set(shading, "color_type", "MATERIAL")
     keep.set(shading, "show_object_outline", True)

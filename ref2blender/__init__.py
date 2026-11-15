@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Ref2Blender",
     "author": "Ref2Blender contributors",
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > Ref2Blender",
     "description": "Build game-ready 3D models from reference images with an AI assistant",
@@ -21,6 +21,7 @@ from bpy.props import (
     BoolProperty,
     CollectionProperty,
     EnumProperty,
+    FloatProperty,
     IntProperty,
     PointerProperty,
     StringProperty,
@@ -34,7 +35,7 @@ VENDOR_DIR = bpy.utils.user_resource("SCRIPTS", path="ref2blender_vendor", creat
 if VENDOR_DIR not in sys.path:
     sys.path.append(VENDOR_DIR)
 
-from . import agent, bridge, export_tools, i18n, scene_tools  # noqa: E402
+from . import agent, bridge, export_tools, i18n, scene_tools, script_store  # noqa: E402
 from .i18n import tr  # noqa: E402
 
 
@@ -85,8 +86,17 @@ class R2B_RefImage(PropertyGroup):
     view: EnumProperty(name="View", items=VIEW_ITEMS, default="AUTO")
 
 
+class R2B_Param(PropertyGroup):
+    """One measure of the model script (the name is the variable's)."""
+    value: FloatProperty(name="Value", precision=3, step=1)
+    original: FloatProperty()
+    is_int: BoolProperty()
+    script: StringProperty()
+
+
 class R2B_Settings(PropertyGroup):
     images: CollectionProperty(type=R2B_RefImage)
+    params: CollectionProperty(type=R2B_Param)
     active_image: IntProperty()
     description: StringProperty(
         name="Description",
@@ -315,7 +325,9 @@ class R2B_OT_generate(Operator):
             return {"CANCELLED"}
         if settings.replace_previous:
             scene_tools.clear_collection(context.scene)
-        agent.start(client, prefs.model, prefs.effort, settings.max_steps, content, new_conversation=True)
+            script_store.forget()
+        agent.start(client, prefs.model, prefs.effort, settings.max_steps, content, new_conversation=True,
+                    references=[bpy.path.abspath(img.path) for img in settings.images])
         return {"FINISHED"}
 
 
@@ -395,6 +407,46 @@ class R2B_OT_export(Operator):
         return {"FINISHED"}
 
 
+class R2B_OT_rebuild(Operator):
+    bl_idname = "r2b.rebuild"
+    bl_label = "Rebuild"
+    bl_description = (
+        "Write the measures above into the model script and run it again. The Ref2Blender "
+        "collection is emptied first, so objects you added to it by hand are removed"
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return not agent.SESSION.running and bool(script_store.stored())
+
+    def invoke(self, context, event):
+        if script_store.unscripted():
+            return context.window_manager.invoke_confirm(self, event)
+        return self.execute(context)
+
+    def execute(self, context):
+        ok, output = script_store.rebuild(context.scene)
+        if not ok:
+            print("[Ref2Blender]", output)
+            last = output.strip().splitlines()[-1] if output.strip() else ""
+            self.report({"ERROR"}, tr("The script failed: {error}", error=last))
+            return {"CANCELLED"}
+        tris = sum(len(p.vertices) - 2 for o in scene_tools.target_objects(context.scene)
+                   if o.type == "MESH" for p in o.data.polygons)
+        self.report({"INFO"}, tr("Model rebuilt: {tris} triangles", tris=tris))
+        return {"FINISHED"}
+
+
+class R2B_OT_reload_params(Operator):
+    bl_idname = "r2b.reload_params"
+    bl_label = "Reload the measures"
+    bl_description = "Read the measures from the script again, dropping the values edited here"
+
+    def execute(self, context):
+        script_store.sync_parameters(context.scene)
+        return {"FINISHED"}
+
+
 class R2B_OT_bridge_start(Operator):
     bl_idname = "r2b.bridge_start"
     bl_label = "Connect"
@@ -455,6 +507,21 @@ class R2B_PT_main(Panel):
             box.operator("r2b.bridge_start", text=tr("Connect"), icon="PLAY")
         if not prefs.safe_mode:
             box.label(text=tr("Safe mode is OFF"), icon="ERROR")
+
+        scripts = script_store.stored()
+        if scripts:
+            box = layout.box()
+            row = box.row()
+            row.label(text=tr("Model script"), icon="FILE_SCRIPT")
+            row.operator("r2b.reload_params", text="", icon="FILE_REFRESH")
+            col = box.column(align=True)
+            for param in settings.params:
+                col.prop(param, "value", text=param.name)
+            box.operator("r2b.rebuild", text=tr("Rebuild"), icon="FILE_REFRESH")
+            sub = box.column(align=True)
+            sub.scale_y = 0.75
+            sub.label(text=tr("Tables and the rest: Text Editor,"))
+            sub.label(text=scripts[0].name)
 
         box = layout.box()
         box.label(text=tr("Export to game"), icon="EXPORT")
@@ -518,6 +585,7 @@ class R2B_PT_main(Panel):
 
 CLASSES = (
     R2B_RefImage,
+    R2B_Param,
     R2B_Settings,
     R2B_Preferences,
     R2B_OT_install_deps,
@@ -527,6 +595,8 @@ CLASSES = (
     R2B_OT_refine,
     R2B_OT_cancel,
     R2B_OT_export,
+    R2B_OT_rebuild,
+    R2B_OT_reload_params,
     R2B_OT_bridge_start,
     R2B_OT_bridge_stop,
     R2B_UL_images,

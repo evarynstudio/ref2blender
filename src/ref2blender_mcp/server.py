@@ -30,7 +30,9 @@ Ref2Blender builds game-ready 3D models in the user's open Blender session, usua
 reference images the user gives you. You cannot see the viewport: render_views is your eyes.
 
 Workflow
-1. Call blender_status. If Blender is not connected, tell the user how to connect and stop.
+1. Call blender_status. If Blender is not connected, tell the user how to connect and stop. \
+If the scene already holds a model, call model_script: the script that built it is kept in \
+the .blend file, so continue from it instead of starting again.
 2. Study the references: which view each shows, the proportions (height : width : depth), the \
 main volumes, the details that matter. Agree a style and a triangle budget with the user, or \
 assume them and say so (small prop 300-1500 triangles, hero prop or vehicle 2k-8k).
@@ -54,10 +56,7 @@ numbers, so they move together and never end up buried or floating.
 - Silhouette before details. Name the three to five features that make the subject \
 recognisable (a roofline, a stance, the shape of a handle) and get those right in the main \
 volumes. Add no details until the side and front outlines match the references.
-- Compare like with like. For each reference photo, estimate where the camera stood and \
-render from there with `cameras` (azimuth, elevation, the photo's aspect); use the fixed \
-orthographic views for drawings and blueprints. List the differences in order of their \
-effect on the outline, and fix the largest first.
+- Compare like with like. For each reference photo, estimate where the camera stood and call compare_reference with that camera: it lays the model's outline over the reference and, when the reference has a plain background, scores the overlap and shows what is missing or extra. Adjust the camera until the overlay sits right, then correct the measures, largest difference first. Use the fixed orthographic views for drawings and blueprints, and render_views for a plain look at the model.
 - Before you finish: no part hidden inside another, none floating; round parts that stand on \
 the ground use a segment count divisible by 4 so the lowest point is exactly Z=0; left and \
 right parts come from the same numbers, mirrored.
@@ -162,6 +161,50 @@ def render_views(views: Optional[list[View]] = None, size: int = 768, asset: Opt
 
 
 @mcp.tool()
+def compare_reference(image_path: str, view: Optional[View] = None, camera: Optional[dict] = None,
+                      subject_box: Optional[list[float]] = None, size: int = 768,
+                      asset: Optional[str] = None) -> list:
+    """Lay the model's outline over a reference image and measure how well they match.
+
+    image_path: absolute path of the reference image on the user's disk.
+    Give either `view` (a fixed view, for drawings and blueprints) or `camera`: an object with
+    azimuth, elevation and lens as in render_views, placed where the picture was taken from
+    (the picture's own aspect is used).
+
+    Returns an overlay (the reference with the model's outline in magenta) and, when the
+    reference has a plain or transparent background, the overlap of the two outlines as a
+    percentage, how much of the model is missing or extra and in which part of the picture,
+    and a difference image (red = in the reference only, blue = in the model only).
+
+    If the subject cannot be told from the background, the call fails and asks for
+    subject_box = [left, top, right, bottom] of the subject, as fractions of the image from its
+    top-left corner; you then get the overlay only, to judge by eye.
+    """
+    reply = _call({"cmd": "compare", "image": os.path.abspath(image_path), "view": view,
+                   "camera": camera, "box": subject_box, "size": size, "asset": asset})
+    content = [reply["text"]]
+    for item in reply["renders"]:
+        content.append(f"Image: {item['view']}")
+        content.append(Image(data=base64.standard_b64decode(item["png"]), format="png"))
+    return content
+
+
+@mcp.tool()
+def model_script() -> str:
+    """Return the script that built the current model, as stored in the .blend file.
+
+    Every piece of code that ran without error is kept there (a script that calls
+    clear_model() replaces what was stored; other code is appended as a further step), so
+    you can pick up a model made in an earlier conversation. The user can change its
+    UPPER_CASE top-level numbers from the Blender panel and press Rebuild.
+    """
+    scripts = _call({"cmd": "script"})["scripts"]
+    if not scripts:
+        return "No model script is stored in this Blender file."
+    return "\n\n".join(f"# ==== {s['name']} ====\n{s['code']}" for s in scripts)
+
+
+@mcp.tool()
 def scene_summary() -> str:
     """List the objects in the Ref2Blender collection with dimensions and triangle counts."""
     return _call({"cmd": "summary"})["summary"]
@@ -214,7 +257,8 @@ def export_all_assets(folder: str, engine: Engine = "unity", lods: int = 0,
 
 @mcp.tool()
 def clear_model() -> str:
-    """Delete everything in the Ref2Blender collection and reset the Python namespace.
+    """Delete everything in the Ref2Blender collection (and its stored script) and reset
+    the Python namespace.
     Destructive: use it only to start a new model, when the user agrees to drop the current one."""
     reply = _call({"cmd": "clear"})
     return f"Removed {reply['removed']} objects."

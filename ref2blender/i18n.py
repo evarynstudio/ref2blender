@@ -26,6 +26,9 @@ CA = {
     "Convex collision": "Col·lisió convexa",
     "LOD levels": "Nivells de LOD",
     "One file per asset": "Un fitxer per asset",
+    "Model script": "Script del model",
+    "Rebuild": "Reconstrueix",
+    "Tables and the rest: Text Editor,": "Taules i la resta: Editor de text,",
     "With an API key": "Amb clau d'API",
     "The Claude library must be installed": "Cal instal·lar la llibreria de Claude",
     "Install the Claude library": "Instal·la la llibreria de Claude",
@@ -62,6 +65,8 @@ CA = {
     "Export failed: {error}": "No s'ha pogut exportar: {error}",
     "Exported {files} file(s), {tris} triangles in total": "Exportats {files} fitxers, {tris} triangles en total",
     "Could not open port {port}: {error}": "No s'ha pogut obrir el port {port}: {error}",
+    "The script failed: {error}": "L'script ha fallat: {error}",
+    "Model rebuilt: {tris} triangles": "Model reconstruït: {tris} triangles",
     # agent status
     "Idle": "Inactiu",
     "A generation is already running.": "Ja hi ha una generació en marxa.",
@@ -79,6 +84,10 @@ CA = {
     "▶ code executed": "▶ codi executat",
     "✖ error in the code (Claude will fix it)": "✖ error al codi (Claude el corregirà)",
     "📷 views: {views}": "📷 vistes: {views}",
+    "Step {step}/{total}: comparing with the reference…": "Pas {step}/{total}: comparant amb la referència…",
+    "🔍 comparison with reference {index}": "🔍 comparació amb la referència {index}",
+    "🔍 comparison with reference {index}: {score}% overlap":
+        "🔍 comparació amb la referència {index}: {score}% de coincidència",
     "Invalid API key. Check it in the add-on preferences.":
         "Clau d'API no vàlida. Revisa-la a les preferències de l'add-on.",
     "The API key has no permission for this model.": "La clau d'API no té permís per a aquest model.",

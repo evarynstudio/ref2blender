@@ -20,6 +20,12 @@ integration with asset libraries and AI mesh generation, see
 - **Check renders.** Orthographic front/back/left/right/top/bottom and two perspective views,
   auto-framed, showing only the generated model. Free cameras (angle, lens, aspect ratio) let
   the assistant look at the model from where a reference photo was taken.
+- **Outline comparison.** The model's outline is laid over a reference from the same angle.
+  When the reference has a plain or transparent background (drawings, blueprints, product
+  shots) you also get a score, the overlap of the two outlines, and a picture of what is
+  missing and what is extra, so corrections are measured instead of guessed.
+- **A script you can rerun.** The script that builds the model is kept inside the `.blend`
+  file. Its measures appear in the panel: change a number, press **Rebuild**.
 - **Modelling helpers.** Lofted bodies, lathe shapes, cut-outs and inset panels are one call
   each, so a model is a table of measures plus a short script that rebuilds it: corrections
   are number changes, not object-by-object edits.
@@ -102,11 +108,22 @@ scene is left alone.
 | `blender_status` | Checks that Blender is open and connected |
 | `execute_blender_code` | Runs Python in Blender; returns output, errors and a scene summary |
 | `render_views` | Returns check renders of the model as images, from fixed views or free cameras |
+| `compare_reference` | Lays the model's outline over a reference image; scores the match when its background is plain |
+| `model_script` | Returns the script that built the model, as stored in the `.blend` file |
 | `scene_summary` | Lists objects with dimensions and triangle counts |
 | `check_model` | Game-readiness report, optionally against a triangle budget |
 | `export_model` | Exports for `unity`, `unreal`, `godot` or `generic` (GLB) |
 | `export_all_assets` | One file per asset sub-collection |
 | `clear_model` | Empties the `Ref2Blender` collection |
+
+### Changing the model yourself
+
+After the assistant has built a model, the panel shows a **Model script** box with the
+script's measures (the numbers it assigns to `UPPER_CASE` names: lengths, radii, positions).
+Edit any of them and press **Rebuild**: the script runs again with the new values. The script
+itself is the text `Ref2Blender_Model.py` in Blender's Text Editor, where you can also edit
+its tables. Rebuild empties the `Ref2Blender` collection first, so objects you added to it by
+hand are removed (it asks before doing so); `Ctrl+Z` undoes a rebuild.
 
 ### Engine notes
 
@@ -132,7 +149,8 @@ your own Anthropic API key (**With an API key** section). It installs the `anthr
 into a private folder the first time you use it.
 
 There is also a small command-line client, [`r2b.py`](r2b.py), that needs only the Python
-standard library: `python r2b.py ping`, `exec`, `render`, `check`, `export`. For example,
+standard library: `python r2b.py ping`, `exec`, `render`, `compare`, `script`, `check`,
+`export`. For example,
 `python r2b.py render --camera 35,8,50,1.5` renders from the front-right, slightly above,
 with a 50 mm lens and a 3:2 picture.
 
@@ -174,6 +192,10 @@ blender --background --factory-startup --python tests/safe_test.py
 
 ```bash
 blender --background --factory-startup --python tests/build_test.py
+```
+
+```bash
+blender --background --factory-startup --python tests/compare_test.py
 ```
 
 ```bash

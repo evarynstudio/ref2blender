@@ -11,6 +11,10 @@ User-facing documentation is in `README.md`.
   - `build_tools.py`: modelling helpers preloaded for generated code (`loft_symmetric`,
     `revolve`, `boolean`, `inset_panel`...). Its `DOC` is repeated as `HELPERS_DOC` in
     `src/ref2blender_mcp/server.py`; change both together.
+  - `compare_tools.py`: outline of the model laid over a reference image, with an overlap
+    score when the reference's background is plain or transparent (uses Blender's `numpy`).
+  - `script_store.py`: keeps the code that built the model in a text datablock of the .blend,
+    lists its top-level `UPPER_CASE = number` measures for the panel, and rebuilds from it.
   - `safety.py`: safe mode (static AST check plus restricted builtins). Must not import `bpy`.
   - `export_tools.py`: game-readiness report and engine export (LODs, collision, palette).
   - `agent.py`: built-in API-key mode that calls the Claude API from the panel.
@@ -30,6 +34,8 @@ python r2b.py ping
 python r2b.py exec path/to/step.py
 python r2b.py render front right three_quarter
 python r2b.py render --camera 35,8,50,1.5     # azimuth,elevation[,lens[,aspect]]: match a photo
+python r2b.py compare photo.jpg --camera 35,8,50   # outline over the reference, and a score
+python r2b.py script                          # the model script stored in the .blend
 python r2b.py check --budget 2000
 python r2b.py export path/to/Assets/Models/Chair --engine unity --lods 2 --collision --palette
 ```
@@ -43,6 +49,8 @@ Ask before writing into a user's game project (exports, the Unity postprocessor)
 
 ## Development
 
+- Code run through the bridge or the API-key mode is recorded by `script_store.record`; code
+  run by Rebuild is not. Keep it that way, or a rebuild would append the script to itself.
 - UI text: write English in the code, wrap it in `tr()`, and add the Catalan line to `i18n.py`.
 - Anything that executes generated code must go through `scene_tools.run_code`, so safe mode
   applies. New bridge commands must validate their inputs before touching `bpy`.
@@ -54,6 +62,7 @@ blender --background --factory-startup --python tests/smoke_test.py
 blender --background --factory-startup --python tests/export_test.py
 blender --background --factory-startup --python tests/safe_test.py
 blender --background --factory-startup --python tests/build_test.py
+blender --background --factory-startup --python tests/compare_test.py
 python tests/mcp_test.py "path/to/blender"
 ```
 

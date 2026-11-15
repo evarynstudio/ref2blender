@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "ref2blender"
-version = "1.1.0"
+version = "1.2.0"
 name = "Ref2Blender"
 tagline = "Game-ready models from reference images, built by your AI"
 maintainer = "Ref2Blender contributors"

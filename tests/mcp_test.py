@@ -8,6 +8,7 @@ MCP client would, and drives a full model -> render -> check -> export round.
 """
 
 import asyncio
+import base64
 import os
 import subprocess
 import sys
@@ -49,7 +50,8 @@ async def run(tmp):
             assert "render_views" in (init.instructions or ""), "server instructions missing"
             tools = {t.name for t in (await session.list_tools()).tools}
             expected = {"blender_status", "execute_blender_code", "render_views", "scene_summary",
-                        "check_model", "export_model", "export_all_assets", "clear_model"}
+                        "check_model", "export_model", "export_all_assets", "clear_model",
+                        "compare_reference", "model_script"}
             assert tools == expected, tools ^ expected
 
             status = await session.call_tool("blender_status", {})
@@ -82,6 +84,28 @@ async def run(tmp):
             bad = await session.call_tool("render_views", {})
             assert failed(bad)
 
+            # The front render (plain background) stands in for a reference drawing.
+            reference = os.path.join(tmp, "reference.png")
+            with open(reference, "wb") as f:
+                f.write(base64.standard_b64decode(images[0].data))
+            compared = await session.call_tool(
+                "compare_reference", {"image_path": reference, "view": "front", "size": 256})
+            assert not failed(compared) and "Outline overlap: 9" in text_of(compared), text_of(compared)
+            assert len([c for c in compared.content if c.type == "image"]) == 2
+            print(text_of(compared).splitlines()[1])
+            boxed = await session.call_tool("compare_reference", {
+                "image_path": reference, "camera": {"azimuth": 30, "elevation": 10},
+                "subject_box": [0.3, 0.1, 0.7, 0.9], "size": 256})
+            assert not failed(boxed) and len([c for c in boxed.content if c.type == "image"]) == 2
+            bad = await session.call_tool("compare_reference", {"image_path": reference})
+            assert failed(bad) and "view" in text_of(bad), text_of(bad)
+            bad = await session.call_tool(
+                "compare_reference", {"image_path": os.path.join(tmp, "none.png"), "view": "front"})
+            assert failed(bad) and "No such image" in text_of(bad), text_of(bad)
+
+            script = await session.call_tool("model_script", {})
+            assert "primitive_cylinder_add" in text_of(script), text_of(script)
+
             report = await session.call_tool("check_model", {"triangle_budget": 10})
             assert "OVER budget" in text_of(report), text_of(report)
 
@@ -96,6 +120,8 @@ async def run(tmp):
             assert "Removed 1" in text_of(cleared), text_of(cleared)
             summary = await session.call_tool("scene_summary", {})
             assert "no geometry" in text_of(summary)
+            script = await session.call_tool("model_script", {})
+            assert "No model script" in text_of(script), text_of(script)
 
 
 async def run_disconnected():

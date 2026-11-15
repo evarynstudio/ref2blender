@@ -12,7 +12,7 @@ import traceback
 
 import bpy
 
-from . import build_tools, i18n, scene_tools
+from . import build_tools, compare_tools, i18n, scene_tools, script_store
 from .i18n import tr
 
 MAX_TOKENS = 64000
@@ -50,10 +50,7 @@ numbers, so they move together and never end up buried or floating.
 - Silhouette before details. Name the three to five features that make the subject \
 recognisable (a roofline, a stance, the shape of a handle) and get those right in the main \
 volumes. Add no details until the side and front outlines match the references.
-- Compare like with like. For each reference photo, estimate where the camera stood and \
-render from there with the cameras input of render_views (azimuth, elevation, the photo's aspect); use the fixed \
-orthographic views for drawings and blueprints. List the differences in order of their \
-effect on the outline, and fix the largest first.
+- Compare like with like. For each reference photo, estimate where the camera stood and call compare_reference with that camera: it lays the model's outline over the reference and, when the reference has a plain background, scores the overlap and shows what is missing or extra. Adjust the camera until the overlay sits right, then correct the measures, largest difference first. Use the fixed orthographic views for drawings and blueprints, and render_views for a plain look at the model.
 - Before you finish: no part hidden inside another, none floating; round parts that stand on \
 the ground use a segment count divisible by 4 so the lowest point is exactly Z=0; left and \
 right parts come from the same numbers, mirrored.
@@ -151,6 +148,40 @@ TOOLS = [
             "additionalProperties": False,
         },
     },
+    {
+        "name": "compare_reference",
+        "description": (
+            "Lay the model's outline over one of the reference images and measure the match. "
+            "Give the reference's number (1 for the first image) and either a fixed view or a "
+            "camera placed where the picture was taken from (azimuth, elevation, lens; the "
+            "picture's own aspect is used). Returns an overlay (magenta = the model's outline) "
+            "and, when the reference has a plain or transparent background, the overlap of the "
+            "two outlines as a percentage, where the model is missing or extra, and a "
+            "difference image. If the subject cannot be told from the background, pass "
+            "subject_box = [left, top, right, bottom] as fractions of the image from its "
+            "top-left corner; you then get the overlay only."
+        ),
+        "eager_input_streaming": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reference": {"type": "integer", "description": "Number of the reference image, from 1."},
+                "view": {"type": "string", "enum": list(scene_tools.VIEWS)},
+                "camera": {
+                    "type": "object",
+                    "properties": {
+                        "azimuth": {"type": "number"},
+                        "elevation": {"type": "number"},
+                        "lens": {"type": "number"},
+                    },
+                    "additionalProperties": False,
+                },
+                "subject_box": {"type": "array", "items": {"type": "number"}},
+            },
+            "required": ["reference"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 VIEW_LABELS = {
@@ -168,6 +199,7 @@ VIEW_LABELS = {
 class Session:
     def __init__(self):
         self.messages = []
+        self.references = []
         self.namespace = None
         self.client = None
         self.request = {}
@@ -225,12 +257,13 @@ def build_user_content(images, description, style="FREE", tri_budget=0):
     return content
 
 
-def start(client, model, effort, max_steps, user_content, new_conversation):
+def start(client, model, effort, max_steps, user_content, new_conversation, references=None):
     s = SESSION
     if s.running:
         raise RuntimeError(tr("A generation is already running."))
     if new_conversation or s.namespace is None:
         s.messages = []
+        s.references = list(references or [])
         s.namespace = scene_tools.new_namespace()
         s.log = []
         s.tokens_in = s.tokens_out = 0
@@ -426,7 +459,10 @@ def _run_tool(block, cut_off):
         if not isinstance(code, str) or not code.strip():
             return _tool_error(block, "Invalid input: 'code' must be a non-empty string.")
         s.status = tr("Step {step}/{total}: running code in Blender…", step=s.steps, total=s.max_steps)
+        before = script_store.snapshot()
         ok, output = scene_tools.run_code(code, s.namespace)
+        if ok:
+            script_store.record(code, before)
         s.add_log(tr("▶ code executed") if ok else tr("✖ error in the code (Claude will fix it)"))
         text = (output or "(no output)") + "\n\n" + scene_tools.scene_summary(bpy.context.scene)
         result = {"type": "tool_result", "tool_use_id": block.id, "content": text}
@@ -457,6 +493,38 @@ def _run_tool(block, cut_off):
         content = []
         for name, png in renders:
             content.append({"type": "text", "text": f"Render: {name}"})
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64.standard_b64encode(png).decode("ascii"),
+                },
+            })
+        return {"type": "tool_result", "tool_use_id": block.id, "content": content}
+
+    if block.name == "compare_reference":
+        index = args.get("reference")
+        if isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= len(s.references):
+            return _tool_error(
+                block, f"Invalid input: 'reference' must be a number from 1 to {len(s.references)}.")
+        s.status = tr("Step {step}/{total}: comparing with the reference…", step=s.steps, total=s.max_steps)
+        try:
+            result = compare_tools.compare_reference(
+                s.references[index - 1], args.get("view"), args.get("camera"), args.get("subject_box"))
+        except (ValueError, RuntimeError) as exc:
+            return _tool_error(block, str(exc).replace("'box'", "'subject_box'"))
+        except Exception as exc:
+            traceback.print_exc()
+            return _tool_error(block, f"Comparison failed: {exc}")
+        if result["iou"] is None:
+            s.add_log(tr("🔍 comparison with reference {index}", index=index))
+        else:
+            s.add_log(tr("🔍 comparison with reference {index}: {score}% overlap",
+                         index=index, score=round(result["iou"] * 100)))
+        content = [{"type": "text", "text": result["text"]}]
+        for name, png in result["images"]:
+            content.append({"type": "text", "text": f"Image: {name}"})
             content.append({
                 "type": "image",
                 "source": {

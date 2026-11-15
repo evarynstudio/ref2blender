@@ -17,7 +17,7 @@ import traceback
 
 import bpy
 
-from . import export_tools, scene_tools
+from . import compare_tools, export_tools, scene_tools, script_store
 
 DEFAULT_PORT = 9876
 INFO_PATH = os.path.join(os.path.expanduser("~"), ".ref2blender", "bridge.json")
@@ -145,7 +145,10 @@ def _handle(request):
         code = request.get("code")
         if not isinstance(code, str) or not code.strip():
             return {"ok": False, "error": "'code' must be a non-empty string."}
+        before = script_store.snapshot()
         ok, output = scene_tools.run_code(code, _state["namespace"])
+        if ok:
+            script_store.record(code, before)
         return {"ok": ok, "output": output, "summary": scene_tools.scene_summary(scene)}
 
     if cmd == "render":
@@ -165,6 +168,24 @@ def _handle(request):
         return {"ok": True, "renders": [
             {"view": name, "png": base64.standard_b64encode(png).decode("ascii")}
             for name, png in renders
+        ]}
+
+    if cmd == "compare":
+        try:
+            result = compare_tools.compare_reference(
+                request.get("image"), request.get("view"), request.get("camera"), request.get("box"),
+                request.get("size", scene_tools.RENDER_SIZE), _asset(request))
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "text": result["text"], "iou": result["iou"], "renders": [
+            {"view": name, "png": base64.standard_b64encode(png).decode("ascii")}
+            for name, png in result["images"]
+        ]}
+
+    if cmd == "script":
+        return {"ok": True, "scripts": [
+            {"name": text.name, "asset": script_store.asset_of(text), "code": text.as_string()}
+            for text in script_store.stored()
         ]}
 
     if cmd == "summary":
@@ -202,6 +223,7 @@ def _handle(request):
 
     if cmd == "clear":
         removed = scene_tools.clear_collection(scene)
+        script_store.forget()
         _state["namespace"] = scene_tools.new_namespace()
         return {"ok": True, "removed": removed}
 
