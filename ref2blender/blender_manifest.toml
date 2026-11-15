@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+
+id = "ref2blender"
+version = "1.1.0"
+name = "Ref2Blender"
+tagline = "Game-ready models from reference images, built by your AI"
+maintainer = "Ref2Blender contributors"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Modeling", "Import-Export", "Game Engine"]
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "*.pyc"]
+
+[permissions]
+network = "Local connection to your AI assistant; optional Claude API calls"
+files = "Export models and read the reference images you choose"

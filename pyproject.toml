@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ref2blender-mcp"
+dynamic = ["version"]
+description = "MCP server that lets an AI assistant build game-ready 3D models in Blender from reference images"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = ["mcp>=1.2"]
+keywords = ["blender", "mcp", "3d", "gamedev", "unity", "unreal"]
+
+[project.scripts]
+ref2blender-mcp = "ref2blender_mcp.server:main"
+
+[tool.hatch.version]
+path = "src/ref2blender_mcp/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ref2blender_mcp"]
+
+# Ship the Blender add-on inside the package so `ref2blender-mcp install-addon` can copy it.
+[tool.hatch.build.targets.wheel.force-include]
+"ref2blender" = "ref2blender_mcp/addon/ref2blender"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "ref2blender", "unity", "README.md", "LICENSE"]
