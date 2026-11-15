@@ -3,6 +3,9 @@
     python r2b.py ping
     python r2b.py exec script.py        run a Python file inside Blender ("-" reads stdin)
     python r2b.py render front right three_quarter [--size 768]
+    python r2b.py render --camera 35,8,50,1.5   free camera: azimuth,elevation[,lens[,aspect]]
+                         (azimuth 0 = front, 90 = right side; lens 0 = orthographic;
+                          aspect = width/height; repeat --camera for more; saved as camera_N.png)
     python r2b.py summary
     python r2b.py clear                 empty the Ref2Blender collection
     python r2b.py check [--budget 2000] game-readiness report (triangles, materials, UVs)
@@ -59,7 +62,8 @@ def main():
     p_exec = sub.add_parser("exec")
     p_exec.add_argument("file")
     p_render = sub.add_parser("render")
-    p_render.add_argument("views", nargs="+")
+    p_render.add_argument("views", nargs="*")
+    p_render.add_argument("--camera", action="append", default=[], metavar="AZ,EL[,LENS[,ASPECT]]")
     p_render.add_argument("--size", type=int, default=768)
     sub.add_parser("summary")
     sub.add_parser("clear")
@@ -117,7 +121,17 @@ def main():
         sys.exit(0 if reply["ok"] else 1)
 
     if args.cmd == "render":
-        reply = call({"cmd": "render", "views": args.views, "size": args.size, "asset": args.asset})
+        cameras = []
+        for text in args.camera:
+            try:
+                values = [float(v) for v in text.split(",")]
+            except ValueError:
+                sys.exit(f"--camera expects numbers: azimuth,elevation[,lens[,aspect]] (got {text!r})")
+            if not 2 <= len(values) <= 4:
+                sys.exit("--camera expects azimuth,elevation[,lens[,aspect]]")
+            cameras.append(dict(zip(("azimuth", "elevation", "lens", "aspect"), values)))
+        reply = call({"cmd": "render", "views": args.views, "size": args.size, "asset": args.asset,
+                      "cameras": cameras})
         if not reply["ok"]:
             sys.exit(reply["error"])
         os.makedirs(RENDER_DIR, exist_ok=True)

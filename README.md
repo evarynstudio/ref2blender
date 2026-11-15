@@ -18,7 +18,11 @@ integration with asset libraries and AI mesh generation, see
 - **Model from references.** Explicit geometry (vertices, primitives, modifiers), so the result
   is editable, not a dense scanned mesh.
 - **Check renders.** Orthographic front/back/left/right/top/bottom and two perspective views,
-  auto-framed, showing only the generated model.
+  auto-framed, showing only the generated model. Free cameras (angle, lens, aspect ratio) let
+  the assistant look at the model from where a reference photo was taken.
+- **Modelling helpers.** Lofted bodies, lathe shapes, cut-outs and inset panels are one call
+  each, so a model is a table of measures plus a short script that rebuilds it: corrections
+  are number changes, not object-by-object edits.
 - **Triangle budgets.** A game-readiness report: triangles against a budget, materials,
   missing UVs, n-gons, warnings.
 - **Engine export** that leaves your scene untouched:
@@ -97,7 +101,7 @@ scene is left alone.
 |---|---|
 | `blender_status` | Checks that Blender is open and connected |
 | `execute_blender_code` | Runs Python in Blender; returns output, errors and a scene summary |
-| `render_views` | Returns check renders of the model as images |
+| `render_views` | Returns check renders of the model as images, from fixed views or free cameras |
 | `scene_summary` | Lists objects with dimensions and triangle counts |
 | `check_model` | Game-readiness report, optionally against a triangle budget |
 | `export_model` | Exports for `unity`, `unreal`, `godot` or `generic` (GLB) |
@@ -128,7 +132,9 @@ your own Anthropic API key (**With an API key** section). It installs the `anthr
 into a private folder the first time you use it.
 
 There is also a small command-line client, [`r2b.py`](r2b.py), that needs only the Python
-standard library: `python r2b.py ping`, `exec`, `render`, `check`, `export`.
+standard library: `python r2b.py ping`, `exec`, `render`, `check`, `export`. For example,
+`python r2b.py render --camera 35,8,50,1.5` renders from the front-right, slightly above,
+with a 50 mm lens and a 3:2 picture.
 
 ## Security
 
@@ -167,8 +173,15 @@ blender --background --factory-startup --python tests/safe_test.py
 ```
 
 ```bash
+blender --background --factory-startup --python tests/build_test.py
+```
+
+```bash
 python tests/mcp_test.py "path/to/blender"
 ```
+
+The last one replaces the bridge connection file, so it refuses to run while a Blender session
+is connected.
 
 Build the installable extension zip into `dist/` (create the folder first):
 

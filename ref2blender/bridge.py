@@ -57,11 +57,12 @@ def start(port_number=DEFAULT_PORT):
 
 def stop():
     sock, _state["sock"] = _state["sock"], None
-    if sock is not None:
-        try:
-            sock.close()
-        except OSError:
-            pass
+    if sock is None:
+        return  # not ours: another Blender session may own the connection file
+    try:
+        sock.close()
+    except OSError:
+        pass
     try:
         os.remove(INFO_PATH)
     except OSError:
@@ -148,14 +149,19 @@ def _handle(request):
         return {"ok": ok, "output": output, "summary": scene_tools.scene_summary(scene)}
 
     if cmd == "render":
-        views = request.get("views")
-        if (not isinstance(views, list) or not views
-                or any(v not in scene_tools.VIEWS for v in views)):
-            return {"ok": False, "error": f"'views' must be a non-empty list drawn from {list(scene_tools.VIEWS)}."}
+        views = request.get("views") or []
+        if not isinstance(views, list) or any(v not in scene_tools.VIEWS for v in views):
+            return {"ok": False, "error": f"'views' must be a list drawn from {list(scene_tools.VIEWS)}."}
+        try:
+            cameras = scene_tools.check_cameras(request.get("cameras"))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if not views and not cameras:
+            return {"ok": False, "error": "Give at least one view or one camera."}
         size = request.get("size", scene_tools.RENDER_SIZE)
         if not isinstance(size, int) or not 128 <= size <= 2048:
             return {"ok": False, "error": "'size' must be an integer between 128 and 2048."}
-        renders = scene_tools.render_views(list(dict.fromkeys(views)), size, _asset(request))
+        renders = scene_tools.render_views(list(dict.fromkeys(views)), size, _asset(request), cameras)
         return {"ok": True, "renders": [
             {"view": name, "png": base64.standard_b64encode(png).decode("ascii")}
             for name, png in renders

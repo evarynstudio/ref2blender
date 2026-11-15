@@ -73,6 +73,15 @@ async def run(tmp):
             bad = await session.call_tool("render_views", {"views": ["sideways"]})
             assert failed(bad)
 
+            free = await session.call_tool("render_views", {
+                "size": 256, "cameras": [{"azimuth": 35, "elevation": 8, "lens": 35, "aspect": 1.5}]})
+            assert not failed(free) and "camera_1" in text_of(free), text_of(free)
+            assert len([c for c in free.content if c.type == "image"]) == 1
+            bad = await session.call_tool("render_views", {"cameras": [{"elevation": 120}]})
+            assert failed(bad) and "elevation" in text_of(bad), text_of(bad)
+            bad = await session.call_tool("render_views", {})
+            assert failed(bad)
+
             report = await session.call_tool("check_model", {"triangle_budget": 10})
             assert "OVER budget" in text_of(report), text_of(report)
 

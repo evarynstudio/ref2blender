@@ -15,7 +15,7 @@ import bpy
 import mathutils
 from mathutils import Vector
 
-from . import safety
+from . import build_tools, safety
 
 _SAFE_BUILTINS = safety.safe_builtins()
 
@@ -160,6 +160,7 @@ def new_namespace():
         "COLLECTION_NAME": COLLECTION_NAME,
         "make_material": _make_material,
         "new_asset": _new_asset,
+        **build_tools.HELPERS,
     }
 
 
@@ -292,8 +293,52 @@ class _Restore:
                 pass
 
 
-def render_views(views, size=RENDER_SIZE, asset=None):
-    """Render the generated objects (or one asset). Returns a list of (view_name, png_bytes)."""
+MAX_CAMERAS = 6
+FRAME_MARGIN = 1.08
+
+
+def check_cameras(cameras):
+    """Validate free cameras; returns a list of normalised dicts or raises ValueError.
+    azimuth: degrees round the model, 0 = looking at its front, 90 = at its right side,
+    180 = at its back, -90 = at its left. elevation: degrees above the horizon (-89..89).
+    lens: focal length in mm (0 = orthographic). aspect: image width / height."""
+    if cameras in (None, []):
+        return []
+    if not isinstance(cameras, list) or len(cameras) > MAX_CAMERAS:
+        raise ValueError(f"'cameras' must be a list of at most {MAX_CAMERAS} objects.")
+    limits = {"azimuth": (-360, 360, 0.0), "elevation": (-89, 89, 10.0),
+              "lens": (0, 300, 50.0), "aspect": (0.4, 2.5, 1.0)}
+    out = []
+    for cam in cameras:
+        if not isinstance(cam, dict) or set(cam) - set(limits):
+            raise ValueError(f"Each camera is an object with the keys {list(limits)}.")
+        item = {}
+        for key, (lo, hi, default) in limits.items():
+            value = cam.get(key, default)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not lo <= value <= hi:
+                raise ValueError(f"Camera '{key}' must be a number between {lo} and {hi}.")
+            item[key] = float(value)
+        if 0 < item["lens"] < 10:
+            raise ValueError("Camera 'lens' must be 0 (orthographic) or at least 10 mm.")
+        out.append(item)
+    return out
+
+
+def _camera_shots(cameras):
+    shots = []
+    for i, cam in enumerate(check_cameras(cameras), 1):
+        az, el = math.radians(cam["azimuth"]), math.radians(cam["elevation"])
+        direction = Vector((math.sin(az) * math.cos(el), -math.cos(az) * math.cos(el), math.sin(el)))
+        shots.append((f"camera_{i}", direction, cam["lens"] == 0, cam["lens"] or 50.0, cam["aspect"]))
+    return shots
+
+
+def render_views(views, size=RENDER_SIZE, asset=None, cameras=None):
+    """Render the generated objects (or one asset). Returns a list of (view_name, png_bytes).
+    `cameras` adds free cameras (see check_cameras), named camera_1, camera_2..., to match
+    the angle a reference photo was taken from."""
+    shots = [(name, VIEWS[name][0], VIEWS[name][1], 50.0, 1.0) for name in views]
+    shots += _camera_shots(cameras)
     scene = bpy.context.scene
     bpy.context.view_layer.update()
     objs = target_objects(scene, asset)
@@ -303,6 +348,7 @@ def render_views(views, size=RENDER_SIZE, asset=None):
     lo, hi = _bounds(objs)
     center = (lo + hi) / 2
     radius = max((hi - lo).length / 2, 1e-4)
+    corners = [Vector((x, y, z)) for x in (lo.x, hi.x) for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
 
     cam_data = bpy.data.cameras.new("R2B_TempCam")
     cam = bpy.data.objects.new("R2B_TempCam", cam_data)
@@ -336,22 +382,34 @@ def render_views(views, size=RENDER_SIZE, asset=None):
     results = []
     tmpdir = tempfile.mkdtemp(prefix="ref2blender_")
     try:
-        for name in views:
-            direction, ortho = VIEWS[name]
+        for name, direction, ortho, lens, aspect in shots:
             direction = direction.normalized()
+            # The longer image side keeps `size` pixels; frame by the shorter one.
+            render.resolution_x = size if aspect >= 1 else max(16, round(size * aspect))
+            render.resolution_y = size if aspect <= 1 else max(16, round(size / aspect))
+            # Fit the bounding box to the picture, whatever its shape and the view angle.
+            quat = direction.to_track_quat("Z", "Y")
+            right, up = quat @ Vector((1, 0, 0)), quat @ Vector((0, 1, 0))
+            rel = [c - center for c in corners]
             if ortho:
                 cam_data.type = "ORTHO"
-                cam_data.ortho_scale = radius * 2 * 1.1
+                width = 2 * max(abs(p.dot(right)) for p in rel)
+                height = 2 * max(abs(p.dot(up)) for p in rel)
+                fit = max(width, height * aspect) if aspect >= 1 else max(height, width / aspect)
+                cam_data.ortho_scale = max(fit, 1e-4) * FRAME_MARGIN
                 dist = radius * 3 + 1
             else:
                 cam_data.type = "PERSP"
-                cam_data.lens = 50
-                half_fov = cam_data.angle / 2
-                dist = radius / math.sin(half_fov) * 1.1
+                cam_data.lens = lens
+                tan = math.tan(cam_data.angle / 2)          # of the longer image side
+                tan_x, tan_y = (tan, tan / aspect) if aspect >= 1 else (tan * aspect, tan)
+                dist = max(p.dot(direction) + max(abs(p.dot(right)) / tan_x, abs(p.dot(up)) / tan_y)
+                           for p in rel) * FRAME_MARGIN
+                dist = max(dist, radius * 0.1)
             cam_data.clip_start = max(dist - radius * 1.5, 0.001)
             cam_data.clip_end = dist + radius * 1.5
             cam.location = center + direction * dist
-            cam.rotation_euler = direction.to_track_quat("Z", "Y").to_euler()
+            cam.rotation_euler = quat.to_euler()
 
             path = os.path.join(tmpdir, f"{name}.png")
             render.filepath = path

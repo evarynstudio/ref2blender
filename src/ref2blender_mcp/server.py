@@ -54,8 +54,10 @@ numbers, so they move together and never end up buried or floating.
 - Silhouette before details. Name the three to five features that make the subject \
 recognisable (a roofline, a stance, the shape of a handle) and get those right in the main \
 volumes. Add no details until the side and front outlines match the references.
-- Compare like with like. Render the view closest to each reference, list the differences in \
-order of their effect on the outline, and fix the largest first.
+- Compare like with like. For each reference photo, estimate where the camera stood and \
+render from there with `cameras` (azimuth, elevation, the photo's aspect); use the fixed \
+orthographic views for drawings and blueprints. List the differences in order of their \
+effect on the outline, and fix the largest first.
 - Before you finish: no part hidden inside another, none floating; round parts that stand on \
 the ground use a segment count divisible by 4 so the lowest point is exactly Z=0; left and \
 right parts come from the same numbers, mirrored.
@@ -78,6 +80,26 @@ needs, bevels with one or two segments, few materials reused across parts.
 - Safe mode (on by default) refuses code that touches files, processes or the network, and \
 imports beyond Blender's modelling modules and basic maths. Do not try to work around it.
 """
+
+# Keep in step with DOC in ref2blender/build_tools.py (tests/smoke_test.py compares them).
+HELPERS_DOC = """\
+Helpers preloaded for modelling (angles in degrees, sizes in metres; each returns the object):
+- clear_model(): empty the active collection; call it first so one script rebuilds everything.
+- box(name, size, location, material=None, rotation=(0, 0, 0))
+- cylinder(name, radius, depth, location, material=None, axis="Z", segments=16, radius2=None)
+- loft(name, sections, material=None, cap=True): skin through rings of (x, y, z) points.
+- loft_symmetric(name, stations, material=None, cap=True): left/right symmetric body along Y; \
+each station is (y, [(x, z), ...]) for the +X half, from bottom centre round to top centre.
+- revolve(name, profile, material=None, axis="Z", segments=16, location=(0, 0, 0)): lathe \
+(radius, height[, material_index]) points round an axis; wheels, bottles, columns.
+- boolean(target, tool, operation="DIFFERENCE"): apply and delete the tool (wheel arches, holes).
+- inset_panel(obj, select, material, thickness=0.04): faces whose centre passes select(center) \
+become an inset panel of another material (windows, screens).
+- delete_faces(obj, select): remove faces hidden inside other parts.
+- lerp_table(rows, x): interpolate a table of sections, to place details on its surface.
+material may be one material or a list (for material_index)."""
+
+INSTRUCTIONS += "\n" + HELPERS_DOC + "\n"
 
 mcp = FastMCP("ref2blender", instructions=INSTRUCTIONS)
 
@@ -115,15 +137,23 @@ def execute_blender_code(code: str) -> str:
 
 
 @mcp.tool()
-def render_views(views: list[View], size: int = 768, asset: Optional[str] = None) -> list:
-    """Render the model, auto-framed, and return one image per view.
+def render_views(views: Optional[list[View]] = None, size: int = 768, asset: Optional[str] = None,
+                 cameras: Optional[list[dict]] = None) -> list:
+    """Render the model, auto-framed, and return one image per view and per camera.
 
     front/back/left/right/top/bottom are orthographic (front = camera on -Y looking
     towards +Y; right = camera on +X). three_quarter is a perspective view from the
     front-right and above; three_quarter_back from the back-left and above. Only the
     Ref2Blender collection is shown. Pass `asset` to render a single asset sub-collection.
+
+    `cameras` adds free cameras, rendered as camera_1, camera_2...: each is an object with
+    azimuth (degrees round the model: 0 looks at its front, 90 at its right side, 180 at its
+    back, -90 at its left), elevation (degrees above the horizon), lens (focal length in mm,
+    50 by default, 0 for orthographic) and aspect (image width / height). Use one to look at
+    the model from the angle a reference photo was taken from.
     """
-    reply = _call({"cmd": "render", "views": list(views), "size": size, "asset": asset})
+    reply = _call({"cmd": "render", "views": list(views or []), "size": size, "asset": asset,
+                   "cameras": cameras or []})
     content = []
     for item in reply["renders"]:
         content.append(f"Render: {item['view']}")

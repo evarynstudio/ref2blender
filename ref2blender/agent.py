@@ -12,7 +12,7 @@ import traceback
 
 import bpy
 
-from . import i18n, scene_tools
+from . import build_tools, i18n, scene_tools
 from .i18n import tr
 
 MAX_TOKENS = 64000
@@ -50,8 +50,10 @@ numbers, so they move together and never end up buried or floating.
 - Silhouette before details. Name the three to five features that make the subject \
 recognisable (a roofline, a stance, the shape of a handle) and get those right in the main \
 volumes. Add no details until the side and front outlines match the references.
-- Compare like with like. Render the view closest to each reference, list the differences in \
-order of their effect on the outline, and fix the largest first.
+- Compare like with like. For each reference photo, estimate where the camera stood and \
+render from there with the cameras input of render_views (azimuth, elevation, the photo's aspect); use the fixed \
+orthographic views for drawings and blueprints. List the differences in order of their \
+effect on the outline, and fix the largest first.
 - Before you finish: no part hidden inside another, none floating; round parts that stand on \
 the ground use a segment count divisible by 4 so the lowest point is exactly Z=0; left and \
 right parts come from the same numbers, mirrored.
@@ -121,7 +123,8 @@ TOOLS = [
             "per requested view. front/back/left/right/top/bottom are orthographic (front = "
             "camera on -Y looking towards +Y; right = camera on +X); three_quarter is a "
             "perspective view from the front-right and above, three_quarter_back from the "
-            "back-left and above. Use it to compare your model against the references."
+            "back-left and above. Use it to compare your model against the references. "
+            "cameras adds free cameras, rendered as camera_1, camera_2...: each is an object with azimuth (degrees round the model: 0 looks at its front, 90 at its right side, 180 at its back, -90 at its left), elevation (degrees above the horizon), lens (focal length in mm, 50 by default, 0 for orthographic) and aspect (image width / height). Use one to look at the model from the angle a reference photo was taken from."
         ),
         "eager_input_streaming": True,
         "input_schema": {
@@ -130,10 +133,21 @@ TOOLS = [
                 "views": {
                     "type": "array",
                     "items": {"type": "string", "enum": list(scene_tools.VIEWS)},
-                    "minItems": 1,
+                },
+                "cameras": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "azimuth": {"type": "number"},
+                            "elevation": {"type": "number"},
+                            "lens": {"type": "number"},
+                            "aspect": {"type": "number"},
+                        },
+                        "additionalProperties": False,
+                    },
                 },
             },
-            "required": ["views"],
             "additionalProperties": False,
         },
     },
@@ -232,7 +246,7 @@ def start(client, model, effort, max_steps, user_content, new_conversation):
         "system": SYSTEM_PROMPT.format(
             version=bpy.app.version_string, collection=scene_tools.COLLECTION_NAME,
             language=i18n.SUMMARY_LANGUAGE[i18n.language()],
-        ),
+        ) + "\n" + build_tools.DOC,
         "tools": TOOLS,
     }
     s.messages.append({"role": "user", "content": user_content})
@@ -421,20 +435,25 @@ def _run_tool(block, cut_off):
         return result
 
     if block.name == "render_views":
-        views = args.get("views")
-        if (not isinstance(views, list) or not views
-                or any(v not in scene_tools.VIEWS for v in views)):
+        views = args.get("views") or []
+        if not isinstance(views, list) or any(v not in scene_tools.VIEWS for v in views):
             return _tool_error(
-                block, f"Invalid input: 'views' must be a non-empty list drawn from {list(scene_tools.VIEWS)}."
+                block, f"Invalid input: 'views' must be a list drawn from {list(scene_tools.VIEWS)}."
             )
+        try:
+            cameras = scene_tools.check_cameras(args.get("cameras"))
+        except ValueError as exc:
+            return _tool_error(block, f"Invalid input: {exc}")
+        if not views and not cameras:
+            return _tool_error(block, "Invalid input: give at least one view or one camera.")
         views = list(dict.fromkeys(views))
         s.status = tr("Step {step}/{total}: rendering views…", step=s.steps, total=s.max_steps)
         try:
-            renders = scene_tools.render_views(views)
+            renders = scene_tools.render_views(views, cameras=cameras)
         except Exception as exc:
             traceback.print_exc()
             return _tool_error(block, f"Render failed: {exc}")
-        s.add_log(tr("📷 views: {views}", views=", ".join(views)))
+        s.add_log(tr("📷 views: {views}", views=", ".join(name for name, _ in renders)))
         content = []
         for name, png in renders:
             content.append({"type": "text", "text": f"Render: {name}"})
