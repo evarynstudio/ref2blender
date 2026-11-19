@@ -47,6 +47,22 @@ def get_prefs(context):
     return context.preferences.addons[__package__].preferences
 
 
+def api_key_available(context):
+    """A key in the preferences or in the ANTHROPIC_API_KEY environment variable."""
+    return bool(get_prefs(context).api_key.strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip())
+
+
+def _api_mode_ready(cls, context):
+    """Shared poll of the buttons that call the Claude API: say why they are greyed out."""
+    if not sdk_available():
+        cls.poll_message_set(tr("The Claude library is missing: install it from the panel."))
+        return False
+    if not api_key_available(context):
+        cls.poll_message_set(tr("This button needs an Anthropic API key. With MCP, ask your AI assistant instead."))
+        return False
+    return True
+
+
 VIEW_ITEMS = [
     ("AUTO", "Auto", "Let the AI work out which view this is"),
     ("FRONT", "Front", ""),
@@ -290,6 +306,9 @@ def _make_client(operator, context):
     if not sdk_available():
         operator.report({"ERROR"}, tr("The Claude library is missing: install it from the panel."))
         return None
+    if not api_key_available(context):
+        operator.report({"ERROR"}, tr("This button needs an Anthropic API key. With MCP, ask your AI assistant instead."))
+        return None
     import anthropic
 
     key = get_prefs(context).api_key.strip()
@@ -307,7 +326,12 @@ class R2B_OT_generate(Operator):
 
     @classmethod
     def poll(cls, context):
-        return not agent.SESSION.running and len(context.scene.r2b.images) > 0
+        if agent.SESSION.running or not _api_mode_ready(cls, context):
+            return False
+        if not context.scene.r2b.images:
+            cls.poll_message_set(tr("Add at least one reference image."))
+            return False
+        return True
 
     def execute(self, context):
         settings = context.scene.r2b
@@ -338,7 +362,7 @@ class R2B_OT_refine(Operator):
 
     @classmethod
     def poll(cls, context):
-        return not agent.SESSION.running and agent.has_conversation()
+        return not agent.SESSION.running and agent.has_conversation() and _api_mode_ready(cls, context)
 
     def execute(self, context):
         settings = context.scene.r2b
@@ -542,9 +566,13 @@ class R2B_PT_main(Panel):
             box.label(text=tr("The Claude library must be installed"), icon="ERROR")
             box.operator("r2b.install_deps", text=tr("Install the Claude library"), icon="IMPORT")
             return
-        if not prefs.api_key and not os.environ.get("ANTHROPIC_API_KEY"):
+        if not api_key_available(context):
             box = layout.box()
             box.label(text=tr("API key missing"), icon="ERROR")
+            col = box.column(align=True)
+            col.scale_y = 0.75
+            col.label(text=tr("Generate and Refine need a key."))
+            col.label(text=tr("With MCP (no key), ask your assistant."))
             box.operator("preferences.addon_show", text=tr("Open preferences")).module = __package__
 
         layout.label(text=tr("Reference images"))

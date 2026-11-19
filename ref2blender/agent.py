@@ -329,6 +329,8 @@ def _describe_error(exc):
         return tr("API error ({code}): {error}", code=exc.status_code, error=exc.message)
     if isinstance(exc, anthropic.APIConnectionError):
         return tr("Network error. Check your Internet connection.")
+    if isinstance(exc, TypeError) and "authentication" in str(exc):
+        return tr("API key missing: set it in the add-on preferences.")
     return f"{type(exc).__name__}: {exc}"
 
 

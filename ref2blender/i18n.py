@@ -33,6 +33,8 @@ CA = {
     "The Claude library must be installed": "Cal instal·lar la llibreria de Claude",
     "Install the Claude library": "Instal·la la llibreria de Claude",
     "API key missing": "Falta la clau d'API",
+    "Generate and Refine need a key.": "Genera i Refina necessiten una clau.",
+    "With MCP (no key), ask your assistant.": "Per MCP (sense clau), demana-ho al teu assistent.",
     "Open preferences": "Obre les preferències",
     "Reference images": "Imatges de referència",
     "Description (optional)": "Descripció (opcional)",
@@ -61,6 +63,9 @@ CA = {
         "Falta la llibreria de Claude: instal·la-la des del panell.",
     "API key missing: set it in the add-on preferences.":
         "Falta la clau d'API: posa-la a les preferències de l'add-on.",
+    "This button needs an Anthropic API key. With MCP, ask your AI assistant instead.":
+        "Aquest botó necessita una clau d'API d'Anthropic. Per MCP, demana-ho al teu assistent.",
+    "Add at least one reference image.": "Afegeix almenys una imatge de referència.",
     "Could not read an image: {error}": "No s'ha pogut llegir una imatge: {error}",
     "Export failed: {error}": "No s'ha pogut exportar: {error}",
     "Exported {files} file(s), {tris} triangles in total": "Exportats {files} fitxers, {tris} triangles en total",

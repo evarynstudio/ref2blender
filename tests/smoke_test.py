@@ -124,5 +124,24 @@ assert not results[0].get("is_error") and results[1].get("is_error")
 assert s.messages[4]["content"][0]["content"][1]["type"] == "image"
 assert any(o.name.startswith("Sphere") for o in bpy.data.collections["Ref2Blender"].objects)
 
+# Without an API key the API-mode buttons are greyed out instead of failing later.
+# (Registered by hand here, so the add-on has no preferences entry: stand one in.)
+old_key = os.environ.pop("ANTHROPIC_API_KEY", None)
+prefs = types.SimpleNamespace(api_key="")
+real_get_prefs, ref2blender.get_prefs = ref2blender.get_prefs, lambda context: prefs
+item = bpy.context.scene.r2b.images.add()
+item.path = "missing.png"
+assert not ref2blender.api_key_available(bpy.context)
+assert not bpy.ops.r2b.generate.poll() and not bpy.ops.r2b.refine.poll()
+if ref2blender.sdk_available():
+    prefs.api_key = "sk-test"
+    assert ref2blender.api_key_available(bpy.context) and bpy.ops.r2b.generate.poll()
+    assert bpy.ops.r2b.refine.poll()
+bpy.context.scene.r2b.images.remove(len(bpy.context.scene.r2b.images) - 1)
+ref2blender.get_prefs = real_get_prefs
+if old_key is not None:
+    os.environ["ANTHROPIC_API_KEY"] = old_key
+print("no-key buttons ok")
+
 ref2blender.unregister()
 print("ALL OK")
