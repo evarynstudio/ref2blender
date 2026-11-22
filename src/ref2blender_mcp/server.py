@@ -238,6 +238,10 @@ def export_model(path: str, engine: Engine = "unity", lods: int = 0, collision: 
     collision: add a convex collision mesh named the way the engine expects.
     palette: replace all materials with one material and a small colour-swatch PNG
         written next to the model (colour only).
+
+    Characters: when the parts are deformed by an armature (an Armature modifier), the
+    armature is exported too, in its rest pose, with the parts skinned to it. Only one
+    armature per export (give `asset` for one character), and no LODs or collision for it.
     """
     reply = _call({"cmd": "export", "path": os.path.abspath(path), "asset": asset,
                   **_export_options(engine, lods, collision, palette, pivot, separate)})

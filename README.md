@@ -133,12 +133,20 @@ hand are removed (it asks before doing so); `Ctrl+Z` undoes a rebuild.
 | Unreal Engine | FBX | Front towards +X. LODs in an FBX LodGroup, collision as `UCX_<Name>_00` |
 | Godot | GLB | Collision as `<Name>-convcolonly` |
 
+**Characters with a skeleton.** When the parts are deformed by an armature (an Armature
+modifier), the export includes the armature, in its rest pose, with the parts skinned to it,
+whatever pose the character is in. One armature per file (export characters one asset at a
+time); LODs and collision are not available for them yet. In Unity, set the model's
+**Rig > Animation Type** to **Humanoid**: bones named `Hips`, `Spine`, `Chest`, `Neck`, `Head`,
+`UpperArm.L`, `LowerArm.L`, `Hand.L`, `UpperLeg.L`, `LowerLeg.L`, `Foot.L`, `Toes.L` (and `.R`)
+are mapped automatically.
+
 **Unity:** copy [`unity/Ref2BlenderPostprocessor.cs`](unity/Ref2BlenderPostprocessor.cs) into
 `Assets/Editor/` once per project. It turns the `_Collider` child into a convex `MeshCollider`
 and imports palette textures unfiltered. LODs work without it.
 
 **Verification status.** The Unity preset is checked inside Unity 6 (scale, rotation, pivot,
-orientation, LODGroup, collider, palette). The Unreal and Godot presets follow each engine's
+orientation, LODGroup, collider, palette, and a skinned character as a valid Humanoid avatar). The Unreal and Godot presets follow each engine's
 documented conventions and round-trip correctly through Blender, but have not yet been checked
 inside those engines. Reports are welcome.
 

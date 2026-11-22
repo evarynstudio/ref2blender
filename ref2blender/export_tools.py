@@ -137,6 +137,21 @@ def _mesh_copy(obj, depsgraph):
     return mesh
 
 
+def _skeleton_of(sources):
+    """The armature that deforms the exported parts, or None. Raises if there are several."""
+    rigs = []
+    for o in sources:
+        for mod in o.modifiers:
+            if mod.type == "ARMATURE" and mod.object and mod.object.type == "ARMATURE" \
+                    and mod.show_viewport and mod.object not in rigs:
+                rigs.append(mod.object)
+    if len(rigs) > 1:
+        raise RuntimeError(
+            "These parts use more than one skeleton (" + ", ".join(r.name for r in rigs) + "). "
+            "Export each character on its own, with its asset name.")
+    return rigs[0] if rigs else None
+
+
 def _select_only(view_layer, objs):
     for o in view_layer.objects:
         o.select_set(False)
@@ -277,8 +292,6 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
         raise ValueError(f"pivot must be one of {list(PIVOTS)}")
     if not 0 <= lods <= MAX_LODS:
         raise ValueError(f"lods must be between 0 and {MAX_LODS}")
-    if lods or collision:
-        join = True  # LODs and the collision hull describe one mesh
     fmt = ENGINES[engine]
     filepath = os.path.abspath(bpy.path.abspath(filepath))
     filepath = os.path.splitext(filepath)[0] + "." + fmt
@@ -298,6 +311,14 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
         sources = scene_tools.target_objects(scene, asset)
         if not sources:
             raise RuntimeError("Nothing to export: no geometry found.")
+        skeleton = _skeleton_of(sources)
+        if skeleton and (lods or collision):
+            raise RuntimeError("LODs and collision are not available for characters with a "
+                               "skeleton yet: export without them.")
+        if lods or collision:
+            join = True  # LODs and the collision hull describe one mesh
+        saved_pose = skeleton.data.pose_position if skeleton else None
+        skeleton_name = skeleton.name if skeleton else None
 
         prev_selected = [o for o in view_layer.objects if o.select_get()]
         prev_active = view_layer.objects.active
@@ -308,12 +329,23 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
             # Free the real names so the exported objects carry them, not "Name.001".
             for o, name in original_names:
                 o.name = "__r2b_src_" + name
+            if skeleton:
+                # Export the rest pose: the skin is bound in it, whatever pose the
+                # character is in now. Restored below.
+                skeleton.name = "__r2b_src_" + skeleton_name
+                skeleton.data.pose_position = "REST"
+                view_layer.update()
             depsgraph = context.evaluated_depsgraph_get()
             copies = []
             for (o, name) in original_names:
                 mesh = _mesh_copy(o, depsgraph)
                 if mesh is not None:
-                    copies.append(temp.obj(name, temp.mesh(mesh)))
+                    copy = temp.obj(name, temp.mesh(mesh))
+                    if skeleton:
+                        for group in o.vertex_groups:
+                            if group.name not in copy.vertex_groups:
+                                copy.vertex_groups.new(name=group.name)
+                    copies.append(copy)
             if not copies:
                 raise RuntimeError("Nothing to export: the objects have no faces.")
             view_layer.update()
@@ -350,6 +382,10 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
                 # Unreal's forward is +X; after its importer mirrors Y, Blender's +X
                 # stays +X, so turn the model's front (-Y) towards +X.
                 fix = Matrix.Rotation(math.pi / 2, 4, "Z") @ fix
+            rig_copy = None
+            if skeleton:
+                rig_copy = temp.obj(skeleton_name, skeleton.data)
+                rig_copy.matrix_world = fix @ skeleton.matrix_world
             materials = set()
             for c in copies:
                 c.data.transform(fix)
@@ -364,6 +400,15 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
             tris = sum(triangle_count(c.data) for c in copies)
 
             export_objs = list(copies)
+            bones = 0
+            if rig_copy:
+                view_layer.update()
+                for c in copies:
+                    c.parent = rig_copy
+                    c.matrix_parent_inverse = rig_copy.matrix_world.inverted()
+                    c.modifiers.new("Armature", "ARMATURE").object = rig_copy
+                export_objs.append(rig_copy)
+                bones = len(rig_copy.data.bones)
             lod_tris = []
             collision_tris = 0
             if join:
@@ -394,7 +439,7 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
 
             if fmt == "fbx":
                 options = dict(
-                    filepath=filepath, use_selection=True, object_types={"MESH", "EMPTY"},
+                    filepath=filepath, use_selection=True, object_types={"MESH", "EMPTY", "ARMATURE"},
                     use_mesh_modifiers=False, mesh_smooth_type="FACE",
                     add_leaf_bones=False, bake_anim=False,
                     axis_forward="-Z", axis_up="Y",
@@ -419,11 +464,15 @@ def export_model(filepath, engine="unity", join=True, pivot="bottom", triangulat
                 "pivot": pivot, "auto_unwrapped": unwrapped,
                 "lod_triangles": lod_tris, "collision_triangles": collision_tris,
                 "palette": palette_path, "palette_colours": palette_colours,
+                "skeleton": skeleton_name, "bones": bones,
             }
         finally:
             temp.cleanup()
             for o, name in original_names:
                 o.name = name
+            if skeleton:
+                skeleton.name = skeleton_name
+                skeleton.data.pose_position = saved_pose
             for o in view_layer.objects:
                 o.select_set(False)
             for o in prev_selected:
@@ -457,6 +506,8 @@ def describe(info):
         text += " LODs (triangles): " + ", ".join(str(t) for t in info["lod_triangles"]) + "."
     if info["collision_triangles"]:
         text += f" Convex collision: {info['collision_triangles']} triangles."
+    if info.get("skeleton"):
+        text += f" Skeleton: {info['skeleton']} ({info['bones']} bones), parts skinned to it."
     if info["palette"]:
         text += f" Palette: {info['palette_colours']} colours in {os.path.basename(info['palette'])}."
     if info["auto_unwrapped"]:

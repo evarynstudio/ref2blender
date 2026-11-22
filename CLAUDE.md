@@ -55,6 +55,8 @@ Ask before writing into a user's game project (exports, the Unity postprocessor)
 - Anything that executes generated code must go through `scene_tools.run_code`, so safe mode
   applies. New bridge commands must validate their inputs before touching `bpy`.
 - Export must never modify the user's objects: work on copies tracked by `_Temp` and clean up.
+  The one exception is a skeleton's `pose_position`, set to `REST` during the export (so the
+  rest pose is exported) and restored in the `finally` block.
 - Tests (headless Blender; all must pass before a change is done):
 
 ```bash

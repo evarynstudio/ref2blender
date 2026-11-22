@@ -169,5 +169,76 @@ renders = scene_tools.render_views(["three_quarter"], 256, asset="Barrel")
 assert renders[0][1][1:4] == b"PNG"
 print(export_tools.game_report(scene, asset="Crate"))
 assert scene_tools.clear_collection(scene) == 5 and not scene_tools.asset_names(scene)
+# --- a character with a skeleton ----------------------------------------------------
+# Two parts skinned to a two-bone armature, posed: the export must carry the armature,
+# the weights and the rest pose, and must leave the user's pose and names as they were.
+ok, out = scene_tools.run_code(
+    """
+new_asset("Robot")
+col = bpy.context.view_layer.active_layer_collection.collection
+legs = box("Legs", (0.4, 0.3, 1.0), (2, 0, 0.5), make_material("Grey", (0.5, 0.5, 0.5)))
+top = box("Top", (0.6, 0.4, 0.6), (2, 0, 1.3), make_material("Red", (0.8, 0.1, 0.1)))
+rig = bpy.data.objects.new("Robot_Rig", bpy.data.armatures.new("Robot_Rig"))
+col.objects.link(rig)
+for o in bpy.context.view_layer.objects:
+    o.select_set(False)
+bpy.context.view_layer.objects.active = rig
+bpy.ops.object.mode_set(mode="EDIT")
+low = rig.data.edit_bones.new("Hips"); low.head, low.tail = (2, 0, 0), (2, 0, 1.0)
+up = rig.data.edit_bones.new("Chest"); up.head, up.tail = (2, 0, 1.0), (2, 0, 1.6)
+up.parent = low; up.use_connect = True
+bpy.ops.object.mode_set(mode="OBJECT")
+for obj, bone in ((legs, "Hips"), (top, "Chest")):
+    obj.vertex_groups.new(name=bone).add(list(range(len(obj.data.vertices))), 1.0, "REPLACE")
+    obj.modifiers.new("Armature", "ARMATURE").object = rig
+    obj.parent = rig
+rig.pose.bones["Chest"].rotation_mode = "XYZ"
+rig.pose.bones["Chest"].rotation_euler = (1.2, 0, 0)
+""",
+    ns,
+)
+assert ok, out
+robot_rig = bpy.data.objects["Robot_Rig"]
+for engine in ("unity", "unreal", "godot"):
+    info = export_tools.export_model(os.path.join(OUT, "robot_" + engine), engine=engine, asset="Robot", join=False)
+    assert info["skeleton"] == "Robot_Rig" and info["bones"] == 2, info
+    # rest pose: 0.6 wide, 1.6 tall (the posed chest would stick out sideways)
+    assert info["size_m"] == [0.6, 0.4, 1.6], info["size_m"]
+    assert "Skeleton: Robot_Rig (2 bones)" in export_tools.describe(info)
+    assert robot_rig.data.pose_position == "POSE" and robot_rig.name == "Robot_Rig"
+    if info["format"] != "fbx":
+        # Read the GLB's JSON chunk: one skin with both bones, used by both parts.
+        import json, struct
+        data = open(info["path"], "rb").read()
+        gltf = json.loads(data[20:20 + struct.unpack("<I", data[12:16])[0]])
+        nodes = gltf["nodes"]
+        assert len(gltf.get("skins", [])) == 1, gltf.get("skins")
+        assert {nodes[j]["name"] for j in gltf["skins"][0]["joints"]} == {"Hips", "Chest"}
+        assert sorted(n["name"] for n in nodes if n.get("skin") == 0) == ["Legs", "Top"], nodes
+        print(f"rigged {engine}: {sorted(n['name'] for n in nodes)}")
+        continue
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=info["path"])
+    new = [o for o in bpy.data.objects if o not in before]
+    arms = [o for o in new if o.type == "ARMATURE"]
+    meshes = [o for o in new if o.type == "MESH"]
+    assert len(arms) == 1 and {b.name for b in arms[0].data.bones} >= {"Hips", "Chest"}, [o.name for o in new]
+    assert len(meshes) == 2, [o.name for o in meshes]
+    for m in meshes:
+        assert any(md.type == "ARMATURE" and md.object == arms[0] for md in m.modifiers), m.name
+        assert {g.name for g in m.vertex_groups} & {"Hips", "Chest"}, (m.name, list(m.vertex_groups))
+    print(f"rigged {engine}: {sorted(o.name for o in new)}")
+    for o in new:
+        bpy.data.objects.remove(o, do_unlink=True)
+joined = export_tools.export_model(os.path.join(OUT, "robot_joined"), engine="unity", asset="Robot")
+assert joined["objects"] == 1 and joined["skeleton"] == "Robot_Rig", joined
+try:
+    export_tools.export_model(os.path.join(OUT, "robot_lod"), engine="unity", asset="Robot", lods=1)
+    raise AssertionError("LODs with a skeleton should be refused")
+except RuntimeError as exc:
+    assert "skeleton" in str(exc), exc
+assert not any(o.name.startswith("__r2b_src_") for o in bpy.data.objects)
+print("rigged export ok")
+
 ref2blender.unregister()
 print("EXPORT OK")
